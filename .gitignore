@@ -1,0 +1,5 @@
+# File generati da CMake
+/cmake-build-*/
+
+# Dataset scaricato localmente
+/data/
