@@ -1,7 +1,8 @@
 Some info:
 
-i) The purpose of this project is to implement a sequential and parallel version of ANN (Approximate Nearest Neighboor) method for vectors similarity search.
-ii) First, was implemented a brute force version of ANN that is equal to a KNN algorithm that compute similarity over all the vectors in baseline. The complexity of this implementation should be O(|b|*|q|) where |b|, |q| are respectively the cardinality of the baseline and query set.
+1) The purpose of this project is to implement a sequential and parallel version of ANN (Approximate Nearest Neighboor) method for vectors similarity search.
+
+2) First, was implemented a brute force version of ANN that is equal to a KNN algorithm that compute similarity over all the vectors in baseline. The complexity of this implementation should be O(|b|*|q|) where |b|, |q| are respectively the cardinality of the baseline and query set.
 
 Dataset page: http://corpus-texmex.irisa.fr/
 
