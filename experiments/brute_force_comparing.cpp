@@ -9,14 +9,17 @@
 #define FILE_PATH "/Users/andreacommodi/Desktop/github/reps/ANN-seq-vs-parallel/data/sift/sift_base.fvecs"
 
 struct Neighbor {
-     float distance; // o float, a seconda del tipo
-     int id;          // rappresenta la "i" (es. l'indice del nodo)
+     float distance; // distance from query vector
+     int id;          // index of node
 
-     // Costruttore per inizializzare i membri
      Neighbor(float d, int i) {
           distance = d;
           id = i;
      }
+};
+
+void sort_vector(Results, *r) {
+
 };
 
 float calculate_distance(const std::vector<float>& v, const std::vector<float>& q, const bool flag) {
@@ -99,8 +102,13 @@ int main() {
                     neighbor_vector_P.push_back(node);
           }
 
+          #pragma omp critical {
+
+          }
+
      }
      double time_par = omp_get_wtime() - start_par;
+
 
      std::cout << "Tempo sequenziale: " << time_seq * 1000 << " ms\n";
      std::cout << "Tempo parallelo: " << time_par * 1000 << " ms\n";

@@ -20,4 +20,5 @@ else()
 endif()
 
 # Esperimenti: un eseguibile per ogni file con un main()
-add_executable(brute_force_comparing experiments/brute_force_comparing.cpp)
+add_executable(brute_force_comparing experiments/brute_force_comparing.cpp
+        test/partial_sort.cpp)
