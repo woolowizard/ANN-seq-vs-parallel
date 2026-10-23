@@ -18,6 +18,25 @@ struct Neighbor {
      }
 };
 
+int test_solution(
+    const std::vector<Neighbor>& neighbor_vector,
+    const std::vector<Neighbor>& final_structure,
+    std::size_t k
+) {
+     bool invalid = neighbor_vector.size() < k ||
+                    final_structure.size() < k;
+
+     std::size_t i = 0;
+
+     while (!invalid && i < k) {
+          invalid = neighbor_vector[i].distance !=
+                    final_structure[i].distance;
+          ++i;
+     }
+
+     return invalid; // 0 = valida, 1 = non valida
+}
+
 bool compare_distance(const Neighbor& a, const Neighbor& b) {
      return a.distance < b.distance;
 }
@@ -72,10 +91,12 @@ int main() {
           }
      }
 
-     /* Begin distance calculation in PARALLEL mode */
+     /* ********************** */
+     /* Begin SEQUENTIAL VERSION */
+     /* ********************** */
+
      std::vector<float> query_vector;
      std::vector<Neighbor> neighbor_vector;
-     std::vector<Neighbor> final_structure;
 
      query_vector = my_vector[100]; // Simulate the query vector
 
@@ -85,12 +106,25 @@ int main() {
           Neighbor node = Neighbor(distance, i);
           neighbor_vector.push_back(node);
      }
+
+     // The idea is that every thread sort the private version of struct
+     std::partial_sort(
+        neighbor_vector.begin(),
+        neighbor_vector.begin() + n_similar,
+        neighbor_vector.end(),
+        compare_distance);
+
      double time_seq = omp_get_wtime() - start_seq;
 
-     /* Begin parallel version */
+
+
+     /* ********************** */
+     /* Begin PARALLEL VERSION */
+     /* ********************** */
      int i = 0;
      int k = 0;
      std::vector<Neighbor> neighbor_vector_P;
+     std::vector<Neighbor> final_structure;
 
      double start_par = omp_get_wtime();
      #pragma omp parallel shared(my_vector, vec_tot, n_similar) private(i, neighbor_vector_P)
@@ -125,15 +159,19 @@ int main() {
               compare_distance
           );
 
-     for (int i = 0; i < final_structure.size(); i++) {
-          std::cout << std::fixed << std::setprecision(3) << final_structure[i].distance << " at position --> " << final_structure[i].id << std::endl;
-     }
-
      double time_par = omp_get_wtime() - start_par;
 
-     std::cout << "Tempo sequenziale: " << time_seq * 1000 << " ms\n";
-     std::cout << "Tempo parallelo: " << time_par * 1000 << " ms\n";
-     std::cout << "Speedup: " << time_seq / time_par << "x\n";
+     int invalid = test_solution(
+         neighbor_vector,
+         final_structure,
+         n_similar
+     );
+
+     std::cout << (invalid ? "Test KO\n" : "Test OK\n");
+
+     std::cout << "Sequential time: " << time_seq * 1000 << " ms\n";
+     std::cout << "Parallel time: " << time_par * 1000 << " ms\n";
+     std::cout << "Speedup (Ts/Tp): " << time_seq / time_par << "x\n";
 
      return 0;
 }
