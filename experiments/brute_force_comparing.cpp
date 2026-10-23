@@ -9,15 +9,18 @@
 #define FILE_PATH "/Users/andreacommodi/Desktop/github/reps/ANN-seq-vs-parallel/data/sift/sift_base.fvecs"
 
 struct Neighbor {
-     float distance; // o float, a seconda del tipo
-     int id;          // rappresenta la "i" (es. l'indice del nodo)
+     float distance; // distance from query vector
+     int id;          // index of node
 
-     // Costruttore per inizializzare i membri
      Neighbor(float d, int i) {
           distance = d;
           id = i;
      }
 };
+
+bool compare_distance(const Neighbor& a, const Neighbor& b) {
+     return a.distance < b.distance;
+}
 
 float calculate_distance(const std::vector<float>& v, const std::vector<float>& q, const bool flag) {
      /*
@@ -41,6 +44,7 @@ float calculate_distance(const std::vector<float>& v, const std::vector<float>& 
 
 int main() {
 
+     int n_similar = 5;
      auto byteTotali = std::filesystem::file_size(FILE_PATH);
      std::cout << "Bytes totali del file: " << byteTotali << std::endl;
 
@@ -68,9 +72,10 @@ int main() {
           }
      }
 
-     /* Begin distance calculation in sequential mode */
+     /* Begin distance calculation in PARALLEL mode */
      std::vector<float> query_vector;
      std::vector<Neighbor> neighbor_vector;
+     std::vector<Neighbor> final_structure;
 
      query_vector = my_vector[100]; // Simulate the query vector
 
@@ -84,13 +89,13 @@ int main() {
 
      /* Begin parallel version */
      int i = 0;
+     int k = 0;
      std::vector<Neighbor> neighbor_vector_P;
 
      double start_par = omp_get_wtime();
-     #pragma omp parallel shared(my_vector, vec_tot) private(i, neighbor_vector_P)
+     #pragma omp parallel shared(my_vector, vec_tot, n_similar) private(i, neighbor_vector_P)
      {
           int tid = omp_get_thread_num();
-          printf("Hello World from thread = %d\n", tid);
 
           #pragma omp for schedule(static) nowait
                for (i = 0; i < vec_tot; i++) {
@@ -99,7 +104,31 @@ int main() {
                     neighbor_vector_P.push_back(node);
           }
 
+          // The idea is that every thread sort the private version of struct
+          std::partial_sort(
+             neighbor_vector_P.begin(),
+             neighbor_vector_P.begin() + n_similar,
+             neighbor_vector_P.end(),
+             compare_distance);
+
+          // In this line i will allow thread one by one to write in a common struct
+          #pragma omp critical
+               for (int k = 0; k < n_similar; k++) {
+                    final_structure.push_back(neighbor_vector_P[k]);
+               }
      }
+
+     // Sorting merged structure
+     std::sort(
+              final_structure.begin(),
+              final_structure.end(),
+              compare_distance
+          );
+
+     for (int i = 0; i < final_structure.size(); i++) {
+          std::cout << std::fixed << std::setprecision(3) << final_structure[i].distance << " at position --> " << final_structure[i].id << std::endl;
+     }
+
      double time_par = omp_get_wtime() - start_par;
 
      std::cout << "Tempo sequenziale: " << time_seq * 1000 << " ms\n";

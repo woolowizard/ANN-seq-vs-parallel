@@ -19,5 +19,5 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 endif()
 
-# Esperimenti: un eseguibile per ogni file con un main()
 add_executable(brute_force_comparing experiments/brute_force_comparing.cpp)
+add_executable(partial_sort_test test/partial_sort.cpp)
