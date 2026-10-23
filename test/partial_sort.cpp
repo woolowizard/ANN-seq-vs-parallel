@@ -42,5 +42,6 @@ int main () {
     for (int i=0; i < 3; i++){
         std::cout << neighbor_vector[i].distance << std::endl;
     }
+    
     return 0;
 }

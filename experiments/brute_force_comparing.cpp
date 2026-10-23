@@ -18,9 +18,9 @@ struct Neighbor {
      }
 };
 
-void sort_vector(Results, *r) {
-
-};
+bool compare_distance(const Neighbor& a, const Neighbor& b) {
+     return a.distance < b.distance;
+}
 
 float calculate_distance(const std::vector<float>& v, const std::vector<float>& q, const bool flag) {
      /*
@@ -44,6 +44,7 @@ float calculate_distance(const std::vector<float>& v, const std::vector<float>& 
 
 int main() {
 
+     int n_similar = 5;
      auto byteTotali = std::filesystem::file_size(FILE_PATH);
      std::cout << "Bytes totali del file: " << byteTotali << std::endl;
 
@@ -71,9 +72,10 @@ int main() {
           }
      }
 
-     /* Begin distance calculation in sequential mode */
+     /* Begin distance calculation in PARALLEL mode */
      std::vector<float> query_vector;
      std::vector<Neighbor> neighbor_vector;
+     std::vector<Neighbor> final_structure;
 
      query_vector = my_vector[100]; // Simulate the query vector
 
@@ -87,13 +89,13 @@ int main() {
 
      /* Begin parallel version */
      int i = 0;
+     int k = 0;
      std::vector<Neighbor> neighbor_vector_P;
 
      double start_par = omp_get_wtime();
-     #pragma omp parallel shared(my_vector, vec_tot) private(i, neighbor_vector_P)
+     #pragma omp parallel shared(my_vector, vec_tot, n_similar) private(i, neighbor_vector_P)
      {
           int tid = omp_get_thread_num();
-          printf("Hello World from thread = %d\n", tid);
 
           #pragma omp for schedule(static) nowait
                for (i = 0; i < vec_tot; i++) {
@@ -102,13 +104,32 @@ int main() {
                     neighbor_vector_P.push_back(node);
           }
 
-          #pragma omp critical {
+          // The idea is that every thread sort the private version of struct
+          std::partial_sort(
+             neighbor_vector_P.begin(),
+             neighbor_vector_P.begin() + n_similar,
+             neighbor_vector_P.end(),
+             compare_distance);
 
-          }
-
+          // In this line i will allow thread one by one to write in a common struct
+          #pragma omp critical
+               for (int k = 0; k < n_similar; k++) {
+                    final_structure.push_back(neighbor_vector_P[k]);
+               }
      }
-     double time_par = omp_get_wtime() - start_par;
 
+     // Sorting merged structure
+     std::sort(
+              final_structure.begin(),
+              final_structure.end(),
+              compare_distance
+          );
+
+     for (int i = 0; i < final_structure.size(); i++) {
+          std::cout << std::fixed << std::setprecision(3) << final_structure[i].distance << " at position --> " << final_structure[i].id << std::endl;
+     }
+
+     double time_par = omp_get_wtime() - start_par;
 
      std::cout << "Tempo sequenziale: " << time_seq * 1000 << " ms\n";
      std::cout << "Tempo parallelo: " << time_par * 1000 << " ms\n";
