@@ -102,13 +102,6 @@ std::vector<std::vector<HashFunction>> generateHashTable(
     return hashTables;
 }
 
-// Structure for store key-value information where key: signature | value: array of baseline vector index
-struct MappingTable {
-    std::vector<std::int64_t> signature;
-    std::vector<size_t> vector_index;
-};
-
-
 int main() {
     std::random_device rd{};
     std::mt19937 gen{rd()};
@@ -148,7 +141,7 @@ int main() {
      *              },
      *              ...
      *              {
-     *              ...                                     # This is l = L
+     *              ...                                        # This is l = L
      *              }
      * }
     */
