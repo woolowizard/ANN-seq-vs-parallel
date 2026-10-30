@@ -1,4 +1,6 @@
+
 cmake_minimum_required(VERSION 3.12)
+
 project(ANN-seq-vs-parallel)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -19,5 +21,20 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 endif()
 
-add_executable(brute_force_comparing experiments/brute_force_comparing.cpp)
-add_executable(partial_sort_test test/partial_sort.cpp)
+# Brute Force
+add_executable(
+        brute_force_comparing
+        experiments/brute_force_comparing.cpp
+)
+
+# Partial Sort Test
+add_executable(
+        partial_sort_test
+        test/partial_sort.cpp
+)
+
+# Hash Function Generator
+add_executable(
+        hash_function_generator
+        test/hash_function_generator.cpp
+)
