@@ -4,8 +4,13 @@
 #include <random>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <stdexcept>
 #include <map>
+#include <filesystem>
+#include <utility>
+
+#define FILE_PATH "/Users/andreacommodi/Desktop/github/reps/ANN-seq-vs-parallel/data/sift/sift_base.fvecs"
 
 // Generate a random vector from a Gaussian distribution
 std::vector<float> normalVector(
@@ -106,25 +111,63 @@ int main() {
     std::random_device rd{};
     std::mt19937 gen{rd()};
 
-    float w = 4.0f;
+    float w = 12.0f;
     int dim = 128;
-    int M = 5;
-    int L = 2;
+    int M = 2;
+    int L = 10;
 
     auto hashTables = generateHashTable(L, M, dim, w, gen);
 
     // BEGIN TESTS //
-    // Compute every hash function for one vectore (after that generalized it into a function)
+    // BEGIN Vector Loading //
+
+    auto byteTotali = std::filesystem::file_size(FILE_PATH);
+    std::cout << "Bytes totali del file: " << byteTotali << std::endl;
+
+    // Each vector has 4 bytes for dimension + 128 floats
+    int32_t vec_tot = byteTotali / (4 + (128 * 4));
+
+    std::cout << "Vettori totali: " << vec_tot << std::endl;
+
+    std::ifstream file(FILE_PATH, std::ios::in | std::ios::binary);
+
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open dataset");
+    }
 
     std::vector<std::vector<float>> vectors;
-    vectors.push_back(normalVector(dim, 0.0f, 1.5f, gen));
-    vectors.push_back(normalVector(dim, 0.0f, 1.0f, gen));
-    vectors.push_back(normalVector(dim, 0.0f, 1.0f, gen));
-    vectors.push_back(normalVector(dim, 0.0f, 1.0f, gen));
-    vectors.push_back(normalVector(dim, 0.0f, 1.0f, gen));
-    vectors.push_back(normalVector(dim, 0.0f, 1.0f, gen));
-    vectors.push_back(normalVector(dim, 0.0f, 1.0f, gen));
-    vectors.push_back(normalVector(dim, 0.0f, 1.0f, gen));
+    vectors.reserve(vec_tot);
+
+    // Load all vectors from the .fvecs file
+    for (int i = 0; i < vec_tot; i++) {
+
+        // Read dimension for each vector
+        int32_t vec_dim;
+        if (!file.read(reinterpret_cast<char*>(&vec_dim), sizeof(vec_dim))) {
+            throw std::runtime_error("Cannot read vector dimension");
+        }
+
+        if (vec_dim != 128) {
+            throw std::runtime_error("Invalid vector dimension");
+        }
+
+        // Allocate space for 128 float components
+        std::vector<float> x(vec_dim);
+
+        // Read all vector components
+        if (!file.read(
+            reinterpret_cast<char*>(x.data()),
+            vec_dim * sizeof(float)
+        )) {
+            throw std::runtime_error("Cannot read vector components");
+        }
+
+        vectors.push_back(std::move(x));
+    }
+
+    file.close();
+
+    // END Vector Loading //
 
     // HashTable for mapping
     std::vector<std::map< std::vector<std::int64_t>, std::vector<size_t> >> buckets(L);
