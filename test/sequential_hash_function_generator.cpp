@@ -111,7 +111,7 @@ int main() {
     std::random_device rd{};
     std::mt19937 gen{rd()};
 
-    float w = 12.0f;
+    float w = 13.0f;
     int dim = 128;
     int M = 2;
     int L = 10;
@@ -204,26 +204,31 @@ int main() {
     }
 
 
-    /* BEGIN PRINT BUCKETS */
+    /* BEGIN PRINT Statistics */
     for (size_t l = 0; l < buckets.size(); l++) {
-        std::cout << "\n===== TABLE " << l << " =====\n";
+        size_t total = 0;
+        size_t singletons = 0;
+        size_t maxSize = 0;
 
         for (const auto& [signature, indices] : buckets[l]) {
+            total += indices.size();
 
-            std::cout << "Signature: [";
-            for (auto value : signature) {
-                std::cout << value << " ";
-            }
-            std::cout << "] -> Indices: [";
+            if (indices.size() == 1)
+                singletons++;
 
-            for (size_t index : indices) {
-                std::cout << index << " ";
-            }
-
-            std::cout << "]\n";
+            maxSize = std::max(maxSize, indices.size());
         }
+
+        std::cout << "Table " << l << "\n";
+        std::cout << "Buckets: " << buckets[l].size() << "\n";
+        std::cout << "Total indices: " << total << "\n";
+        std::cout << "Singletons: " << singletons << "\n";
+        std::cout << "Max bucket size: " << maxSize << "\n";
+        std::cout << "Average bucket size: "
+                  << static_cast<double>(total) / buckets[l].size()
+                  << "\n";
     }
-    /* END PRINT BUCKETS */
+    /* END PRINT Statistics */
 
     // END TESTS //
 

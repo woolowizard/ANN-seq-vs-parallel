@@ -36,5 +36,5 @@ add_executable(
 # Hash Function Generator
 add_executable(
         hash_function_generator
-        test/hash_function_generator.cpp
+        test/sequential_hash_function_generator.cpp
 )
