@@ -37,4 +37,11 @@ add_executable(
 add_executable(
         hash_function_generator
         test/sequential_hash_function_generator.cpp
+        src/fvecs_loader.cpp
+)
+
+target_include_directories(hash_function_generator PRIVATE include)
+target_compile_definitions(
+        hash_function_generator
+        PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
