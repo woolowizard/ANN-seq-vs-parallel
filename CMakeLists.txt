@@ -40,7 +40,24 @@ add_executable(
         src/fvecs_loader.cpp
 )
 
+# Hash Function Generator
+add_executable(
+        parallel_hash_function_generator
+        test/parallel_hash_function_generator.cpp
+        src/fvecs_loader.cpp
+)
+
 target_include_directories(hash_function_generator PRIVATE include)
+
+target_include_directories(
+        parallel_hash_function_generator
+        PRIVATE include
+)
+
+target_compile_definitions(
+        parallel_hash_function_generator
+        PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 target_compile_definitions(
         hash_function_generator
         PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
@@ -48,7 +65,11 @@ target_compile_definitions(
 
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(fvecs_loader_test test/fvecs_loader_test.cpp src/fvecs_loader.cpp)
+    add_executable(
+        fvecs_loader_test
+        test/fvecs_loader_test.cpp
+        src/fvecs_loader.cpp
+    )
     target_include_directories(fvecs_loader_test PRIVATE include)
     add_test(NAME fvecs_loader_test COMMAND fvecs_loader_test)
 endif()

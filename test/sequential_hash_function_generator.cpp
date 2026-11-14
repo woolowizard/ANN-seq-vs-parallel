@@ -187,8 +187,12 @@ int main() {
     }
     const double indexingMs = Milliseconds(Clock::now() - indexingStart).count();
 
+    std::cout << "Index construction (ms): "
+          << indexingMs << std::endl;
+
     // Search the complete query set. Keep output outside the timed loop.
-    const size_t queryCount = queries.rows;
+     const size_t queryCount = queries.rows;
+    // const size_t queryCount = std::min<size_t>(100, queries.rows);
     size_t totalCandidates = 0;
     size_t totalResults = 0;
     std::uint64_t resultIndexSum = 0;
