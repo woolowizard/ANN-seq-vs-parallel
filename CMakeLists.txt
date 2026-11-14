@@ -33,26 +33,28 @@ add_executable(
         test/partial_sort.cpp
 )
 
-# Hash Function Generator
+# Shared ANN implementation and dataset loaders.
+add_library(ann STATIC
+        src/ann.cpp
+        src/fvecs_loader.cpp
+        src/ground_truth_loader.cpp
+)
+target_include_directories(ann PUBLIC include)
+
+# Sequential Hash Function Generator
 add_executable(
         hash_function_generator
         test/sequential_hash_function_generator.cpp
-        src/fvecs_loader.cpp
 )
 
-# Hash Function Generator
+# Parallel Hash Function Generator
 add_executable(
         parallel_hash_function_generator
         test/parallel_hash_function_generator.cpp
-        src/fvecs_loader.cpp
 )
 
-target_include_directories(hash_function_generator PRIVATE include)
-
-target_include_directories(
-        parallel_hash_function_generator
-        PRIVATE include
-)
+target_link_libraries(hash_function_generator PRIVATE ann)
+target_link_libraries(parallel_hash_function_generator PRIVATE ann)
 
 target_compile_definitions(
         parallel_hash_function_generator
