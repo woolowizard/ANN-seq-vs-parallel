@@ -45,3 +45,10 @@ target_compile_definitions(
         hash_function_generator
         PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(fvecs_loader_test test/fvecs_loader_test.cpp src/fvecs_loader.cpp)
+    target_include_directories(fvecs_loader_test PRIVATE include)
+    add_test(NAME fvecs_loader_test COMMAND fvecs_loader_test)
+endif()

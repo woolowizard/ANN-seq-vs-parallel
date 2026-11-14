@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <vector>
 #include <random>
@@ -10,8 +9,12 @@
 #include <utility>
 #include <unordered_set>
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
 
 #include "fvecs_loader.hpp"
+
+using Signature = std::vector<std::int64_t>;
 
 // Generate a random vector from a Gaussian distribution a ~ N(mean, std)
 std::vector<float> normalVector(
@@ -33,7 +36,7 @@ std::vector<float> normalVector(
 
 struct SignatureHash {
     size_t operator()(
-        const std::vector<std::int64_t>& signature
+        const Signature& signature
     ) const noexcept {
         size_t seed = 0;
 
@@ -50,6 +53,8 @@ struct SignatureHash {
     }
 };
 
+using BucketTable = std::unordered_map<Signature, std::vector<size_t>, SignatureHash>;
+
 // Generate the random offset b ~ U(0, w)
 float biasParameter(float w, std::mt19937& generator) {
     std::uniform_real_distribution<float> distribution(0.0f, w);
@@ -60,12 +65,13 @@ float biasParameter(float w, std::mt19937& generator) {
 
 // Compute h(x) = floor((a^T x + b) / w)
 std::int64_t computeHash(
-    const std::vector<float>& x,
+    const float* x,
+    size_t dim,
     const std::vector<float>& a,
     float b,
     float w
 ) {
-    if (x.size() != a.size() || w <= 0.0f) {
+    if (dim != a.size() || w <= 0.0f) {
         throw std::invalid_argument("Invalid dimensions or w");
     }
 
@@ -90,24 +96,7 @@ struct HashFunction {
     {}
 };
 
-// Generate M hash function
-std::vector<HashFunction> generateSignature(
-    int dim,
-    int M,
-    float w,
-    std::mt19937& generator
-) {
-    std::vector<HashFunction> signature;
-    signature.reserve(M);
-
-    for (int i = 0; i < M; i++) {
-        signature.emplace_back(dim, w, generator);
-    }
-
-    return signature;
-}
-
-// Generate complete HashTable function
+// Generate M fixed hash functions for each of the L tables.
 std::vector<std::vector<HashFunction>> generateHashTable(
     int L,
     int M,
@@ -115,29 +104,38 @@ std::vector<std::vector<HashFunction>> generateHashTable(
     float w,
     std::mt19937& generator
 ) {
-    std::vector<std::vector<HashFunction>> hashTables;
-    hashTables.reserve(L);
+    std::vector<std::vector<HashFunction>> hashTables(L);
 
-    for (int l = 0; l < L; l++) {
-        hashTables.push_back(
-            generateSignature(dim, M, w, generator)
-        );
+    for (auto& table : hashTables) {
+        table.reserve(M);
+        for (int m = 0; m < M; ++m) {
+            table.emplace_back(dim, w, generator);
+        }
     }
 
     return hashTables;
 }
 
-float calculate_squared_distance(
-    const std::vector<float>& v,
-    const std::vector<float>& q
+Signature computeSignature(
+    const float* vector,
+    size_t dim,
+    const std::vector<HashFunction>& functions,
+    float w
 ) {
-    if (v.size() != q.size()) {
-        throw std::invalid_argument("Vectors must have the same dimension");
+    Signature signature;
+    signature.reserve(functions.size());
+
+    for (const auto& function : functions) {
+        signature.push_back(computeHash(vector, dim, function.a, function.b, w));
     }
 
+    return signature;
+}
+
+float calculate_squared_distance(const float* v, const float* q, size_t dim) {
     double squaredDistance = 0.0;
 
-    for (size_t i = 0; i < v.size(); ++i) {
+    for (size_t i = 0; i < dim; ++i) {
         const double difference = static_cast<double>(v[i]) - q[i];
         squaredDistance += difference * difference;
     }
@@ -145,13 +143,13 @@ float calculate_squared_distance(
     return static_cast<float>(squaredDistance);
 }
 
-/**************************************************************/
-/************************* BEGIN MAIN *************************/
-/**************************************************************/
-
 int main() {
-    std::random_device rd{};
-    std::mt19937 gen{rd()};
+    using Clock = std::chrono::steady_clock;
+    using Milliseconds = std::chrono::duration<double, std::milli>;
+    const auto totalStart = Clock::now();
+
+    const std::uint32_t SEED = 42;
+    std::mt19937 gen{SEED};
 
     float w = 15.0f;
     int dim = 128;
@@ -159,64 +157,50 @@ int main() {
     int L = 10;
     const size_t K = 5;
 
-    auto hashTables = generateHashTable(L, M, dim, w, gen);
-
-    // BEGIN Vector Loading //
     const std::filesystem::path datasetDirectory =
         std::filesystem::path(PROJECT_SOURCE_DIR) / "data" / "sift";
 
+    const auto loadingStart = Clock::now();
     const auto vectors = loadFvecs(datasetDirectory / "sift_base.fvecs", dim);
     const auto queries = loadFvecs(datasetDirectory / "sift_query.fvecs", dim);
+    const double loadingMs = Milliseconds(Clock::now() - loadingStart).count();
 
-    if (queries.empty()) {
+    if (queries.rows == 0) {
         throw std::runtime_error("Query dataset is empty");
     }
 
-    std::cout << "Base vectors: " << vectors.size() << '\n';
-    std::cout << "Query vectors: " << queries.size() << '\n';
+    std::cout << "Base vectors: " << vectors.rows << '\n';
+    std::cout << "Query vectors: " << queries.rows << '\n';
 
-    // END Vector Loading //
+    // Build the LSH index.
+    const auto indexingStart = Clock::now();
+    const auto hashTables = generateHashTable(L, M, dim, w, gen);
+    std::vector<BucketTable> buckets(L);
 
-    std::vector< std::unordered_map<std::vector<std::int64_t>, std::vector<size_t>, SignatureHash> > buckets(L);
-
-    for (size_t i = 0; i < vectors.size(); ++i) {
+    for (size_t i = 0; i < vectors.rows; ++i) {
+        const float* vector = vectors.row(i);
         for (int l = 0; l < L; l++) {
-            std::vector<std::int64_t> signature; // Create signature vector for every table(l)
-            signature.reserve(M);
-            // Compute signature g_l(x_i)
-            for (int m = 0; m < M; m++) {
-                std::int64_t hash_value = computeHash(vectors[i], hashTables[l][m].a, hashTables[l][m].b, w);
-                signature.push_back(hash_value); // A signature is easily a vector so i push el by el inside
-            }
-            // Insert vector index into the corresponding bucket
-            buckets[l][signature].push_back(i); // Acceding into key signature and put vector index(i) inside, at table l
+            const auto signature = computeSignature(vector, vectors.dim, hashTables[l], w);
+            buckets[l][signature].push_back(i);
         }
     }
+    const double indexingMs = Milliseconds(Clock::now() - indexingStart).count();
 
-    /* START Searching */
+    // Search the complete query set. Keep output outside the timed loop.
+    const size_t queryCount = queries.rows;
+    size_t totalCandidates = 0;
+    size_t totalResults = 0;
+    std::uint64_t resultIndexSum = 0;
+    double resultDistanceSum = 0.0;
 
-    for (int q=0; q < 1; ++q) {
-
-        std::vector<std::vector<std::int64_t>> querySignatures(
-           L,
-           std::vector<std::int64_t>(M)
-        );
-
-        for (int l = 0; l < L; ++l) {
-            for (int m = 0; m < M; ++m) {
-                querySignatures[l][m] = computeHash(
-                    queries[q],
-                    hashTables[l][m].a,
-                    hashTables[l][m].b,
-                    w
-                );
-            }
-        }
-
+    const auto searchStart = Clock::now();
+    for (size_t q = 0; q < queryCount; ++q) {
+        const float* query = queries.row(q);
         std::unordered_set<size_t> candidateIndexes;
 
         for (int l = 0; l < L; ++l) {
-            auto it = buckets[l].find(querySignatures[l]);
+            const auto signature = computeSignature(query, queries.dim, hashTables[l], w);
+            const auto it = buckets[l].find(signature);
 
             if (it != buckets[l].end()) {
                 candidateIndexes.insert(
@@ -226,12 +210,12 @@ int main() {
             }
         }
 
-        /* Search neighbors in the candidate space */
+        // Score each distinct candidate once, then select the closest K.
         std::vector<std::pair<float, size_t>> scoredCandidates;
         scoredCandidates.reserve(candidateIndexes.size());
 
         for (size_t index : candidateIndexes) {
-            float distance = calculate_squared_distance(vectors[index], queries[q]);
+            const float distance = calculate_squared_distance(vectors.row(index), query, vectors.dim);
 
             scoredCandidates.emplace_back(distance, index);
         }
@@ -246,54 +230,31 @@ int main() {
                 return left.first < right.first;
             }
         );
-
-        std::cout << "Candidates: " << candidateIndexes.size() << '\n';
-        std::cout << "Top " << resultCount << " nearest neighbors:\n";
-
+        totalCandidates += candidateIndexes.size();
+        totalResults += resultCount;
+        // Consume every top-K result without printing or retaining per-query buffers.
         for (size_t i = 0; i < resultCount; ++i) {
-            const auto& [squaredDistance, index] = scoredCandidates[i];
-
-            std::cout << "Index: " << index
-                      << ", squared distance: " << squaredDistance
-                      << '\n';
+            resultIndexSum += scoredCandidates[i].second;
+            resultDistanceSum += scoredCandidates[i].first;
         }
-
     }
+    const double searchMs = Milliseconds(Clock::now() - searchStart).count();
 
-    /* END Searching */
-
-    /* BEGIN PRINT Statistics */
-    /*
-    *bool LOG = false;
-    *if (LOG) {
-    *    for (size_t l = 0; l < buckets.size(); l++) {
-    *        size_t total = 0;
-    *        size_t singletons = 0;
-    *        size_t maxSize = 0;
-    *
-    *        for (const auto& [signature, indices] : buckets[l]) {
-    *            total += indices.size();
-    *
-    *            if (indices.size() == 1)
-    *                singletons++;
-    *
-    *            maxSize = std::max(maxSize, indices.size());
-    *        }
-    *
-    *        std::cout << "Table " << l << "\n";
-    *        std::cout << "Buckets: " << buckets[l].size() << "\n";
-    *        std::cout << "Total indices: " << total << "\n";
-    *        std::cout << "Singletons: " << singletons << "\n";
-    *        std::cout << "Max bucket size: " << maxSize << "\n";
-    *        std::cout << "Average bucket size: "
-    *                  << static_cast<double>(total) / buckets[l].size()
-    *                  << "\n";
-    *    }
-    *}
-    */
-    /*END PRINT Statistics */
-
-    // END TESTS //
+    // Overall elapsed time stops before the summary and final object destruction.
+    const double totalMs = Milliseconds(Clock::now() - totalStart).count();
+    std::cout << std::fixed << std::setprecision(3)
+              << "\nSeed: " << SEED << '\n'
+              << "Queries processed: " << queryCount << '\n'
+              << "Total candidates: " << totalCandidates << '\n'
+              << "Total neighbors returned: " << totalResults << '\n'
+              << "Top-K index sum: " << resultIndexSum << '\n'
+              << "Top-K squared-distance sum: " << resultDistanceSum << '\n'
+              << "Loading (ms): " << loadingMs << '\n'
+              << "Index construction (ms): " << indexingMs << '\n'
+              << "Search, all queries (ms): " << searchMs << '\n'
+              << "Average per query (ms): " << searchMs / queryCount << '\n'
+              << "Throughput (queries/s): " << queryCount * 1000.0 / searchMs << '\n'
+              << "Elapsed until results (ms): " << totalMs << '\n';
 
     return 0;
 }
