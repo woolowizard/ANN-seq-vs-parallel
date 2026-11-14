@@ -10,6 +10,8 @@
 #include <utility>
 #include <unordered_set>
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
 
 #include "fvecs_loader.hpp"
 
@@ -150,8 +152,12 @@ float calculate_squared_distance(
 /**************************************************************/
 
 int main() {
-    std::random_device rd{};
-    std::mt19937 gen{rd()};
+    using Clock = std::chrono::steady_clock;
+    using Milliseconds = std::chrono::duration<double, std::milli>;
+    const auto totalStart = Clock::now();
+
+    const std::uint32_t SEED = 42;
+    std::mt19937 gen{SEED};
 
     float w = 15.0f;
     int dim = 128;
@@ -159,14 +165,14 @@ int main() {
     int L = 10;
     const size_t K = 5;
 
-    auto hashTables = generateHashTable(L, M, dim, w, gen);
-
     // BEGIN Vector Loading //
     const std::filesystem::path datasetDirectory =
         std::filesystem::path(PROJECT_SOURCE_DIR) / "data" / "sift";
 
+    const auto loadingStart = Clock::now();
     const auto vectors = loadFvecs(datasetDirectory / "sift_base.fvecs", dim);
     const auto queries = loadFvecs(datasetDirectory / "sift_query.fvecs", dim);
+    const double loadingMs = Milliseconds(Clock::now() - loadingStart).count();
 
     if (queries.empty()) {
         throw std::runtime_error("Query dataset is empty");
@@ -177,6 +183,8 @@ int main() {
 
     // END Vector Loading //
 
+    const auto indexingStart = Clock::now();
+    const auto hashTables = generateHashTable(L, M, dim, w, gen);
     std::vector< std::unordered_map<std::vector<std::int64_t>, std::vector<size_t>, SignatureHash> > buckets(L);
 
     for (size_t i = 0; i < vectors.size(); ++i) {
@@ -195,7 +203,16 @@ int main() {
 
     /* START Searching */
 
-    for (int q=0; q < 1; ++q) {
+    const double indexingMs = Milliseconds(Clock::now() - indexingStart).count();
+    const size_t queryCount = queries.size();
+    size_t totalCandidates = 0;
+    size_t totalResults = 0;
+    std::uint64_t resultIndexSum = 0;
+    double resultDistanceSum = 0.0;
+
+    // Search the complete query set. Keep output outside the timed loop.
+    const auto searchStart = Clock::now();
+    for (size_t q = 0; q < queryCount; ++q) {
 
         std::vector<std::vector<std::int64_t>> querySignatures(
            L,
@@ -247,18 +264,17 @@ int main() {
             }
         );
 
-        std::cout << "Candidates: " << candidateIndexes.size() << '\n';
-        std::cout << "Top " << resultCount << " nearest neighbors:\n";
-
+        totalCandidates += candidateIndexes.size();
+        totalResults += resultCount;
+        // Consume every top-K result without printing or retaining per-query buffers.
         for (size_t i = 0; i < resultCount; ++i) {
-            const auto& [squaredDistance, index] = scoredCandidates[i];
-
-            std::cout << "Index: " << index
-                      << ", squared distance: " << squaredDistance
-                      << '\n';
+            resultIndexSum += scoredCandidates[i].second;
+            resultDistanceSum += scoredCandidates[i].first;
         }
 
     }
+
+    const double searchMs = Milliseconds(Clock::now() - searchStart).count();
 
     /* END Searching */
 
@@ -294,6 +310,22 @@ int main() {
     /*END PRINT Statistics */
 
     // END TESTS //
+
+    // Overall elapsed time stops before the summary and final object destruction.
+    const double totalMs = Milliseconds(Clock::now() - totalStart).count();
+    std::cout << std::fixed << std::setprecision(3)
+              << "\nSeed: " << SEED << '\n'
+              << "Queries processed: " << queryCount << '\n'
+              << "Total candidates: " << totalCandidates << '\n'
+              << "Total neighbors returned: " << totalResults << '\n'
+              << "Top-K index sum: " << resultIndexSum << '\n'
+              << "Top-K squared-distance sum: " << resultDistanceSum << '\n'
+              << "Loading (ms): " << loadingMs << '\n'
+              << "Index construction (ms): " << indexingMs << '\n'
+              << "Search, all queries (ms): " << searchMs << '\n'
+              << "Average per query (ms): " << searchMs / queryCount << '\n'
+              << "Throughput (queries/s): " << queryCount * 1000.0 / searchMs << '\n'
+              << "Elapsed until results (ms): " << totalMs << '\n';
 
     return 0;
 }
