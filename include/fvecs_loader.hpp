@@ -2,9 +2,10 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <vector>
 
-std::vector<std::vector<float>> loadFvecs(
+#include "flat_matrix.hpp"
+
+FlatMatrix loadFvecs(
     const std::filesystem::path& path,
     std::int32_t expectedDim
 );
