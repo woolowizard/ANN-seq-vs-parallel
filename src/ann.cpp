@@ -144,3 +144,32 @@ std::vector<size_t> searchQuery(
     }
     return neighbors;
 }
+
+double calculateRecall(
+    const std::vector<std::vector<size_t>>& results,
+    const std::vector<std::vector<std::int32_t>>& groundTruth,
+    size_t K
+) {
+    size_t correctNeighbors = 0;
+    const size_t queryCount = results.size();
+
+    for (size_t q = 0; q < queryCount; ++q) {
+        const auto& retrievedNeighbors = results[q]; // Retrieve ANN results for query q
+        const auto& exactNeighbors = groundTruth[q]; // Retrieve GT results for query q
+
+        for (size_t j = 0; j < K; ++j) { // Iterating the vector position
+            const size_t expectedIndex = exactNeighbors[j]; // GT index
+
+            // Searching if GT index are in ANN
+            for (size_t retrievedIndex : retrievedNeighbors) {
+                if (retrievedIndex == expectedIndex) {
+                    ++correctNeighbors;
+                    break; // NB founded --> go to the next j
+                }
+            }
+        }
+    }
+
+    const double expectedNeighbors = static_cast<double>(queryCount) * K;
+    return correctNeighbors / expectedNeighbors;
+}

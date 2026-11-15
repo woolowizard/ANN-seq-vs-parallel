@@ -24,13 +24,7 @@ endif()
 # Brute Force
 add_executable(
         brute_force_comparing
-        experiments/brute_force_comparing.cpp
-)
-
-# Partial Sort Test
-add_executable(
-        partial_sort_test
-        test/partial_sort.cpp
+        benchmarks/brute_force_comparing.cpp
 )
 
 # Shared ANN implementation and dataset loaders.
@@ -44,13 +38,13 @@ target_include_directories(ann PUBLIC include)
 # Sequential Hash Function Generator
 add_executable(
         hash_function_generator
-        test/sequential_hash_function_generator.cpp
+        benchmarks/sequential_hash_function_generator.cpp
 )
 
 # Parallel Hash Function Generator
 add_executable(
         parallel_hash_function_generator
-        test/parallel_hash_function_generator.cpp
+        benchmarks/parallel_hash_function_generator.cpp
 )
 
 target_link_libraries(hash_function_generator PRIVATE ann)
@@ -69,9 +63,22 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(
         fvecs_loader_test
-        test/fvecs_loader_test.cpp
+            test/fvecs_loader_test.cpp
         src/fvecs_loader.cpp
     )
     target_include_directories(fvecs_loader_test PRIVATE include)
     add_test(NAME fvecs_loader_test COMMAND fvecs_loader_test)
+    add_executable(
+            ann_correctness_test
+            test/search_correctness_test.cpp
+    )
+
+    target_link_libraries(ann_correctness_test PRIVATE ann)
+
+    target_compile_definitions(
+            ann_correctness_test
+            PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+
+    add_test(NAME ann_correctness_test COMMAND ann_correctness_test)
 endif()

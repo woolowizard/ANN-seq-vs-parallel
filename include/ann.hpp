@@ -50,3 +50,9 @@ std::vector<size_t> searchQuery(
     const HashTables& hashTables, const std::vector<BucketTable>& buckets,
     float w, size_t K
 );
+
+double calculateRecall(
+    const std::vector<std::vector<size_t>>& results,
+    const std::vector<std::vector<std::int32_t>>& groundTruth,
+    size_t K
+);
