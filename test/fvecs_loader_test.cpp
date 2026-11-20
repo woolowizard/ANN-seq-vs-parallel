@@ -1,8 +1,9 @@
-#include "fvecs_loader.hpp"
+#include "dataset.hpp"
 
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -48,16 +49,16 @@ void runTests(const std::filesystem::path& directory) {
     {
         std::ofstream file(valid, std::ios::binary);
         writeValue<std::int32_t>(file, 2);
-        writeValue<float>(file, 1.5f);
-        writeValue<float>(file, -2.0f);
+        writeValue<float>(file, 0.0f);
+        writeValue<float>(file, 255.0f);
         writeValue<std::int32_t>(file, 2);
         writeValue<float>(file, 7.0f);
-        writeValue<float>(file, 8.5f);
+        writeValue<float>(file, 8.0f);
     }
     const auto matrix = loadFvecs(valid, 2);
     require(matrix.rows == 2 && matrix.dim == 2, "Wrong matrix shape");
-    require(matrix.row(0)[0] == 1.5f && matrix.row(0)[1] == -2.0f &&
-            matrix.row(1)[0] == 7.0f && matrix.row(1)[1] == 8.5f,
+    require(matrix.row(0)[0] == 0 && matrix.row(0)[1] == 255 &&
+            matrix.row(1)[0] == 7 && matrix.row(1)[1] == 8,
             "Row boundaries or components were not preserved");
     require(matrix.row(1) == matrix.data.data() + 2,
             "Rows must be views into contiguous storage");
@@ -82,6 +83,19 @@ void runTests(const std::filesystem::path& directory) {
     std::filesystem::copy_file(valid, truncated);
     std::filesystem::resize_file(truncated, std::filesystem::file_size(truncated) - 1);
     requireThrows<std::runtime_error>([&] { loadFvecs(truncated, 2); });
+
+    // Non arrotondiamo o tronchiamo componenti che non sono rappresentabili esattamente.
+    for (float value : {1.5f, -1.0f, 256.0f,
+                        std::numeric_limits<float>::quiet_NaN(),
+                        std::numeric_limits<float>::infinity()}) {
+        const auto invalid = directory / "invalid-component.fvecs";
+        {
+            std::ofstream file(invalid, std::ios::binary);
+            writeValue<std::int32_t>(file, 1);
+            writeValue<float>(file, value);
+        }
+        requireThrows<std::runtime_error>([&] { loadFvecs(invalid, 1); });
+    }
 
     const auto empty = directory / "empty.fvecs";
     { std::ofstream file(empty, std::ios::binary); }

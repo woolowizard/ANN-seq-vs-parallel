@@ -1,6 +1,4 @@
-
 cmake_minimum_required(VERSION 3.12)
-
 project(ANN-seq-vs-parallel)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -21,64 +19,28 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 endif()
 
-# Brute Force
-add_executable(
-        brute_force_comparing
-        benchmarks/brute_force_comparing.cpp
-)
-
-# Shared ANN implementation and dataset loaders.
-add_library(ann STATIC
-        src/ann.cpp
-        src/fvecs_loader.cpp
-        src/ground_truth_loader.cpp
-)
+# Codice condiviso: algoritmo ANN e caricamento dei dataset.
+add_library(ann STATIC src/ann.cpp src/dataset.cpp)
 target_include_directories(ann PUBLIC include)
 
-# Sequential Hash Function Generator
-add_executable(
-        hash_function_generator
-        benchmarks/sequential_hash_function_generator.cpp
-)
+# Benchmark: tempi, scalabilita', statistiche e recall sul dataset reale.
+add_executable(brute_force_comparing benchmarks/brute_force_comparing.cpp)
+add_executable(strong_scaling benchmarks/strong_scaling.cpp)
+add_executable(weak_scaling benchmarks/weak_scaling.cpp)
 
-# Parallel Hash Function Generator
-add_executable(
-        parallel_hash_function_generator
-        benchmarks/parallel_hash_function_generator.cpp
-)
+foreach(target brute_force_comparing strong_scaling weak_scaling)
+    target_link_libraries(${target} PRIVATE ann)
+    target_compile_definitions(${target} PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+endforeach()
 
-target_link_libraries(hash_function_generator PRIVATE ann)
-target_link_libraries(parallel_hash_function_generator PRIVATE ann)
-
-target_compile_definitions(
-        parallel_hash_function_generator
-        PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-)
-target_compile_definitions(
-        hash_function_generator
-        PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-)
-
+# Test di correttezza su piccoli dataset controllati.
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(
-        fvecs_loader_test
-            test/fvecs_loader_test.cpp
-        src/fvecs_loader.cpp
-    )
-    target_include_directories(fvecs_loader_test PRIVATE include)
-    add_test(NAME fvecs_loader_test COMMAND fvecs_loader_test)
-    add_executable(
-            ann_correctness_test
-            test/search_correctness_test.cpp
-    )
+    add_executable(fvecs_loader_test test/fvecs_loader_test.cpp)
+    add_executable(optimized_search_test test/optimized_search_test.cpp)
 
-    target_link_libraries(ann_correctness_test PRIVATE ann)
-
-    target_compile_definitions(
-            ann_correctness_test
-            PRIVATE PROJECT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-    )
-
-    add_test(NAME ann_correctness_test COMMAND ann_correctness_test)
+    foreach(target fvecs_loader_test optimized_search_test)
+        target_link_libraries(${target} PRIVATE ann)
+        add_test(NAME ${target} COMMAND ${target})
+    endforeach()
 endif()
