@@ -12,11 +12,16 @@ int main() {
     using Clock = std::chrono::steady_clock;
     using Milliseconds = std::chrono::duration<double, std::milli>;
     const int DIM = 128;
-    const size_t K = 5;
-    const int THREADS = 10; // Cambia qui il numero di thread.
+    const size_t K = 20;
+    const int THREADS = 1; // Cambia qui il numero di thread.
+    const std::string which_distance = "squared"; // squared, manhattan oppure cosine.
     const auto directory = std::filesystem::path(PROJECT_SOURCE_DIR) / "data" / "sift";
     const auto vectors = loadFvecs(directory / "sift_base.fvecs", DIM);
     const auto queries = loadFvecs(directory / "sift_query.fvecs", DIM);
+    const auto vectorInverseNorms = which_distance == "cosine"
+        ? precomputeInverseNorms(vectors) : std::vector<double>{};
+    const auto queryInverseNorms = which_distance == "cosine"
+        ? precomputeInverseNorms(queries) : std::vector<double>{};
     const size_t queryCount = queries.rows; // Tutte le query del file.
     std::vector<std::vector<size_t>> results(queryCount);
 
@@ -28,7 +33,11 @@ int main() {
         nearest.reserve(K);
         #pragma omp for schedule(static)
         for (size_t q = 0; q < queryCount; ++q) {
-            results[q] = bruteForceQuery(vectors, queries.row(q), K, nearest);
+            results[q] = bruteForceQuery(
+                vectors, queries.row(q), K, nearest, which_distance,
+                which_distance == "cosine" ? queryInverseNorms[q] : 0.0,
+                vectorInverseNorms
+            );
         }
     }
     const double searchMs = Milliseconds(Clock::now() - start).count();

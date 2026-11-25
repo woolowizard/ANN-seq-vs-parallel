@@ -23,8 +23,8 @@ int main() {
     const float w = 512.0f;
     const int dim = 128;
     const int M = 8;
-    const int L = 60;
-    const size_t K = 5;
+    const int L = 100;
+    const size_t K = 20;
     const int INDEX_THREADS = 10;
     const size_t QUERIES_PER_THREAD = 1000;
     const std::array<int, 10> thread_number = {1,2,3,4,5,6,7,8,9,10}; // Il primo misura T1.
@@ -33,6 +33,10 @@ int main() {
     // Caricamento e costruzione dell'indice restano fuori dal tempo di ricerca.
     const auto vectors = loadFvecs(datasetDirectory / "sift_base.fvecs", dim);
     const auto queries = loadFvecs(datasetDirectory / "sift_query.fvecs", dim);
+
+    const auto vectorInverseNorms = precomputeInverseNorms(vectors);
+    const auto queriesInverseNorms = precomputeInverseNorms(queries);
+
     const int maxThreads = *std::max_element(thread_number.begin(), thread_number.end());
     const size_t requiredQueries = QUERIES_PER_THREAD * maxThreads;
     if (queries.rows < requiredQueries) {

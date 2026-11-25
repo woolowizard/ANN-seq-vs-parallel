@@ -5,6 +5,7 @@
 #include <iosfwd>
 #include <map>
 #include <random>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -64,19 +65,32 @@ std::vector<BucketTable> buildBuckets(
 );
 
 float calculate_squared_distance(const std::uint8_t* v, const std::uint8_t* q, size_t dim);
+float calculate_manhattan_distance(const std::uint8_t* v, const std::uint8_t* q, size_t dim);
+float calculate_cosine_distance(
+    const std::uint8_t* v, const std::uint8_t* q, size_t dim,
+    double queryInverseNorm, double vectorInverseNorm
+);
+
+std::vector<double> precomputeInverseNorms(const FlatMatrix& vectors);
 
 // Il buffer deve essere dimensionato per vectors.rows, hashTables.M e K.
 // Restituisce al massimo K indici, ordinati per distanza e poi per indice.
 std::vector<size_t> searchQuery(
     const FlatMatrix& vectors, const std::uint8_t* query, size_t queryDim,
     const HashTables& hashTables, const std::vector<BucketTable>& buckets,
-    float w, size_t K, SearchBuffers& buffers
+    float w, size_t K, SearchBuffers& buffers,
+    const std::string& which_distance = "squared",
+    double queryInverseNorm = 0.0,
+    const std::vector<double>& vectorInverseNorms = {}
 );
 
 // Ricerca esatta: tutte le distanze complete, buffer di sole K coppie riutilizzabile.
 std::vector<size_t> bruteForceQuery(
     const FlatMatrix& vectors, const std::uint8_t* query, size_t K,
-    std::vector<std::pair<float, size_t>>& nearest
+    std::vector<std::pair<float, size_t>>& nearest,
+    const std::string& which_distance = "squared",
+    double queryInverseNorm = 0.0,
+    const std::vector<double>& vectorInverseNorms = {}
 );
 
 void printSearchStats(

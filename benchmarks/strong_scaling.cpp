@@ -17,6 +17,7 @@ int main() {
 
     const std::uint32_t SEED = 42;
     std::mt19937 gen{SEED};
+    const std::string which_distance = "squared";
     const float w = 512.0f;
     const int dim = 128;
     const int M = 8;
@@ -30,11 +31,16 @@ int main() {
     // Dataset and ground truth loading, outside search timing.
     const auto vectors = loadFvecs(datasetDirectory / "sift_base.fvecs", dim);
     const auto queries = loadFvecs(datasetDirectory / "sift_query.fvecs", dim);
+    const auto vectorInverseNorms = which_distance == "cosine"
+        ? precomputeInverseNorms(vectors) : std::vector<double>{};
+    const auto queryInverseNorms = which_distance == "cosine"
+        ? precomputeInverseNorms(queries) : std::vector<double>{};
     if (queries.rows == 0) {
         throw std::runtime_error("Query dataset is empty");
     }
     std::cout << "Base vectors: " << vectors.rows << '\n';
     std::cout << "Query vectors: " << queries.rows << '\n';
+    std::cout << "Current distance: " << which_distance << '\n';
     const auto groundTruth = loadGroundTruth(
     datasetDirectory / "sift_groundtruth.ivecs",
     queries.rows
@@ -60,7 +66,8 @@ int main() {
     const auto SSearchStart = Clock::now();
     for (size_t q = 0; q < queryCount; ++q) {
         sequentialResults[q] = searchQuery(
-            vectors, queries.row(q), queries.dim, hashTables, buckets, w, K, buffers
+            vectors, queries.row(q), queries.dim, hashTables, buckets, w, K, buffers, which_distance,
+            which_distance == "cosine" ? queryInverseNorms[q] : 0.0, vectorInverseNorms
         );
         sequentialStats += buffers.stats;
     }
@@ -82,7 +89,8 @@ int main() {
             #pragma omp for schedule(dynamic)
             for (size_t q = 0; q < queryCount; ++q) {
                 parallelResults[q] = searchQuery(
-                    vectors, queries.row(q), queries.dim, hashTables, buckets, w, K, threadBuffers
+                    vectors, queries.row(q), queries.dim, hashTables, buckets, w, K, threadBuffers, which_distance,
+                    which_distance == "cosine" ? queryInverseNorms[q] : 0.0, vectorInverseNorms
                 );
                 localStats += threadBuffers.stats;
             }

@@ -1,6 +1,7 @@
 #include "ann.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -31,8 +32,54 @@ std::vector<size_t> exactNeighbors(const FlatMatrix& vectors, const std::uint8_t
     return result;
 }
 
+void checkDistanceMetrics() {
+    const FlatMatrix vectors{{4, 1, 3, 3, 1, 6}, 3, 2};
+    const FlatMatrix queries{{1, 1, 1, 0}, 2, 2};
+    const auto vectorNorms = precomputeInverseNorms(vectors);
+    const auto queryNorms = precomputeInverseNorms(queries);
+    std::vector<std::pair<float, size_t>> nearest;
+
+    require(bruteForceQuery(vectors, queries.row(0), 3, nearest, "squared") ==
+                std::vector<size_t>({1, 0, 2}),
+            "Squared brute force returned incorrect neighbors");
+    require(bruteForceQuery(vectors, queries.row(0), 3, nearest, "manhattan") ==
+                std::vector<size_t>({0, 1, 2}),
+            "Manhattan brute force returned incorrect neighbors");
+    require(nearest[0].first == 3.0f && nearest[1].first == 4.0f && nearest[2].first == 5.0f,
+            "Manhattan brute force returned incorrect distances");
+
+    HashTables hashes;
+    hashes.L = 1;
+    hashes.M = 1;
+    hashes.dim = vectors.dim;
+    hashes.data.resize(vectors.dim + 1, 0.0f); // Tutti i punti nello stesso bucket.
+    const auto buckets = buildBuckets(vectors, hashes, 1.0f, 1);
+    SearchBuffers buffers(vectors.rows, hashes.M, vectors.rows);
+    const std::vector<size_t> cosineOrders[] = {{1, 0, 2}, {0, 1, 2}};
+    for (size_t q = 0; q < queries.rows; ++q) {
+        for (size_t K : {size_t{0}, size_t{1}, size_t{2}, size_t{5}}) {
+            const std::vector<size_t> expected(
+                cosineOrders[q].begin(),
+                cosineOrders[q].begin() + std::min(K, vectors.rows)
+            );
+            require(bruteForceQuery(vectors, queries.row(q), K, nearest,
+                                    "cosine", queryNorms[q], vectorNorms) == expected,
+                    "Cosine brute force returned incorrect neighbors");
+            require(searchQuery(vectors, queries.row(q), queries.dim, hashes, buckets,
+                                1.0f, K, buffers, "cosine", queryNorms[q], vectorNorms) == expected,
+                    "Cosine ANN differs from brute force");
+            require(buffers.stats.earlyExits == 0 &&
+                    buffers.stats.distanceComponents == (K == 0 ? 0 : vectors.rows * vectors.dim),
+                    "Cosine search must compute complete distances");
+        }
+    }
+    require(std::abs(nearest[0].first - (1.0 - 4.0 / std::sqrt(17.0))) < 1e-6,
+            "Cosine brute force used incorrect inverse norms");
+}
+
 int main() {
     try {
+        checkDistanceMetrics();
         FlatMatrix vectors;
         vectors.rows = 130; // Attraversa piu' parole del bitset.
         vectors.dim = 33;   // Include la coda dopo due blocchi SIMD da 16.

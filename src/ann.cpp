@@ -1,5 +1,5 @@
 #include "ann.hpp"
-
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -17,7 +17,35 @@ void normalVector(float* a, size_t dim, std::mt19937& generator) {
 }
 
 // Sommiamo blocchi di 16 componenti: il SIMD è dentro il blocco, controllo tra i blocchi.
-float distanceWithinLimit(
+float ManhattanDistanceWithinLimit(
+    const std::uint8_t* v, const std::uint8_t* q, size_t dim,
+    float limit, SearchStats& stats
+) {
+    std::uint64_t sum = 0;
+    size_t processed = 0;
+    while (processed < dim) {
+        const size_t end = std::min(processed + 16, dim);
+        #pragma omp simd reduction(+:sum)
+        for (size_t d = processed; d < end; ++d) {
+            // Convertire PRIMA della sottrazione: la differenza puo' essere negativa.
+            const int difference = static_cast<int>(v[d]) - static_cast<int>(q[d]);
+            sum += std::abs(difference);
+        }
+        processed = end;
+        if (static_cast<float>(sum) > limit) {
+            break;
+        }
+    }
+    // Un solo aggiornamento, sia per la distanza completa sia per quella interrotta.
+    stats.distanceComponents += processed;
+    if (processed < dim) {
+        ++stats.earlyExits;
+    }
+    return static_cast<float>(sum);
+}
+
+// Sommiamo blocchi di 16 componenti: il SIMD è dentro il blocco, controllo tra i blocchi.
+float SquaredDistanceWithinLimit(
     const std::uint8_t* v, const std::uint8_t* q, size_t dim,
     float limit, SearchStats& stats
 ) {
@@ -80,6 +108,32 @@ std::int64_t computeHash(
     return static_cast<std::int64_t>(std::floor((projection + b) / w));
 }
 
+// Precompute 1/||x||_2 for query & vectors
+std::vector<double> precomputeInverseNorms(const FlatMatrix& vectors) {
+    std::vector<double> inverseNorms(vectors.rows);
+
+    for (size_t i = 0; i < vectors.rows; ++i) {
+        const std::uint8_t* v = vectors.row(i);
+        std::uint64_t sumSquares = 0;
+
+    #pragma omp simd reduction(+:sumSquares)
+        for (size_t pos = 0; pos < vectors.dim; ++pos) {
+            const auto value = static_cast<std::uint64_t>(v[pos]);
+            sumSquares += value * value;
+        }
+
+        if (sumSquares == 0) {
+            throw std::invalid_argument(
+                "Cosine distance is undefined for zero vectors"
+            );
+        }
+
+        inverseNorms[i] = 1.0 / std::sqrt(static_cast<double>(sumSquares));
+    }
+
+    return inverseNorms;
+}
+
 void computeSignature(
     const std::uint8_t* vector, const HashTables& hashTables,
     size_t table, float w, Signature& signature
@@ -113,6 +167,36 @@ std::vector<BucketTable> buildBuckets(
     return buckets;
 }
 
+float calculate_cosine_distance(
+        const std::uint8_t* v,
+        const std::uint8_t* q,
+        size_t dim,
+        double queryInverseNorm,
+        double vectorInverseNorm
+    ) {
+    std::uint64_t dot = 0;
+    #pragma omp simd reduction(+:dot)
+        for (size_t d = 0; d < dim; ++d) {
+            dot += static_cast<std::uint64_t>(v[d]) * q[d];
+        }
+
+        const double distance = 1.0 - static_cast<double>(dot) * queryInverseNorm * vectorInverseNorm;
+
+        return static_cast<float>(distance);
+}
+
+float calculate_manhattan_distance(const std::uint8_t* v, const std::uint8_t* q, size_t dim) {
+    std::uint64_t sum = 0;
+    // SIMD usa piu' corsie dello stesso core: questa direttiva non crea altri thread.
+    #pragma omp simd reduction(+:sum)
+    for (size_t d = 0; d < dim; ++d) {
+        const int difference = static_cast<int>(v[d]) - static_cast<int>(q[d]);
+        sum += std::abs(difference);
+    }
+    return static_cast<float>(sum);
+}
+
+
 float calculate_squared_distance(const std::uint8_t* v, const std::uint8_t* q, size_t dim) {
     std::uint64_t sum = 0;
     // SIMD usa piu' corsie dello stesso core: questa direttiva non crea altri thread.
@@ -132,10 +216,19 @@ SearchBuffers::SearchBuffers(size_t vectorCount, size_t M, size_t K)
 std::vector<size_t> searchQuery(
     const FlatMatrix& vectors, const std::uint8_t* query, size_t queryDim,
     const HashTables& hashTables, const std::vector<BucketTable>& buckets,
-    float w, size_t K, SearchBuffers& buffers
+    float w, size_t K, SearchBuffers& buffers, const std::string& which_distance,
+    double queryInverseNorm, const std::vector<double>& vectorInverseNorms
 ) {
     if (queryDim != vectors.dim || queryDim != hashTables.dim) {
         throw std::invalid_argument("Query and index dimensions differ");
+    }
+    if (which_distance != "squared" && which_distance != "manhattan" && which_distance != "cosine") {
+        throw std::invalid_argument("Unknown distance: " + which_distance);
+    }
+    if (which_distance == "cosine" &&
+        (vectorInverseNorms.size() != vectors.rows ||
+         !(queryInverseNorm > 0.0) || !std::isfinite(queryInverseNorm))) {
+        throw std::invalid_argument("Cosine distance requires precomputed inverse norms");
     }
     // Azzeriamo il contenuto, conservando la memoria allocata per la query successiva.
     std::fill(buffers.visited.begin(), buffers.visited.end(), 0);
@@ -169,15 +262,36 @@ std::vector<size_t> searchQuery(
             ++stats.distanceComputations;
 
             float distance;
-            if (nearest.size() < K) {
-                distance = calculate_squared_distance(vectors.row(index), query, vectors.dim);
+            if (which_distance == "squared") {
+                if (nearest.size() < K) {
+                    distance = calculate_squared_distance(vectors.row(index), query, vectors.dim);
+                    stats.distanceComponents += vectors.dim;
+                } else {
+                    // Qui usiamo la funzione che compara la distanza calcolata su un blocco parziale e vede se è già > della peggiore, in quel caso usciamo prima senza calcolarla tutta
+                    distance = SquaredDistanceWithinLimit(
+                        vectors.row(index), query, vectors.dim, nearest[buffers.worst].first, stats
+                    );
+                }
+            } else if (which_distance == "manhattan") {
+                if (nearest.size() < K) {
+                    distance = calculate_manhattan_distance(vectors.row(index), query, vectors.dim);
+                    stats.distanceComponents += vectors.dim;
+                } else {
+                    // Qui usiamo la funzione che compara la distanza calcolata su un blocco parziale e vede se è già > della peggiore, in quel caso usciamo prima senza calcolarla tutta
+                    distance = ManhattanDistanceWithinLimit(
+                        vectors.row(index), query, vectors.dim, nearest[buffers.worst].first, stats
+                    );
+                }
+            } else if (which_distance == "cosine") {
+                distance = calculate_cosine_distance(
+                    vectors.row(index), query, vectors.dim,
+                    queryInverseNorm, vectorInverseNorms[index]
+                );
                 stats.distanceComponents += vectors.dim;
             } else {
-                // Qui usiamo la funzione che compara la distanza calcolata su un blocco parziale e vede se è già > della peggiore, in quel caso usciamo prima senza calcolarla tutta
-                distance = distanceWithinLimit(
-                    vectors.row(index), query, vectors.dim, nearest[buffers.worst].first, stats
-                );
+                throw std::invalid_argument("Unknown distance: " + which_distance);
             }
+
             const std::pair<float, size_t> candidate{distance, index};
             if (nearest.size() < K) { // Se non ho ancora K candidati questo lo inserisco senza confronto
                 nearest.push_back(candidate);
@@ -205,8 +319,17 @@ std::vector<size_t> searchQuery(
 // Come nell'ANN, aggiorniamo la posizione della peggiore solo quando cambia il buffer.
 std::vector<size_t> bruteForceQuery(
     const FlatMatrix& vectors, const std::uint8_t* query, size_t K,
-    std::vector<std::pair<float, size_t>>& nearest
+    std::vector<std::pair<float, size_t>>& nearest, const std::string& which_distance,
+    double queryInverseNorm, const std::vector<double>& vectorInverseNorms
 ) {
+    if (which_distance != "squared" && which_distance != "manhattan" && which_distance != "cosine") {
+        throw std::invalid_argument("Unknown distance: " + which_distance);
+    }
+    if (which_distance == "cosine" &&
+        (vectorInverseNorms.size() != vectors.rows ||
+         !(queryInverseNorm > 0.0) || !std::isfinite(queryInverseNorm))) {
+        throw std::invalid_argument("Cosine distance requires precomputed inverse norms");
+    }
     nearest.clear(); // La capacita' viene riutilizzata per la prossima query.
     K = std::min(K, vectors.rows);
     if (K == 0) {
@@ -214,7 +337,20 @@ std::vector<size_t> bruteForceQuery(
     }
     size_t worst = 0;
     for (size_t i = 0; i < vectors.rows; ++i) {
-        const float distance = calculate_squared_distance(vectors.row(i), query, vectors.dim);
+        float distance;
+        if (which_distance == "squared") {
+            distance = calculate_squared_distance(vectors.row(i), query, vectors.dim);
+        } else if (which_distance == "manhattan") {
+            distance = calculate_manhattan_distance(vectors.row(i), query, vectors.dim);
+        } else if (which_distance == "cosine") {
+            distance = calculate_cosine_distance(
+                vectors.row(i), query, vectors.dim,
+                queryInverseNorm, vectorInverseNorms[i]
+            );
+        } else {
+            throw std::invalid_argument("Unknown distance: " + which_distance);
+        }
+
         const std::pair<float, size_t> candidate{distance, i};
         if (nearest.size() < K) {
             nearest.push_back(candidate);
